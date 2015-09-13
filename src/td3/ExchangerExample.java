@@ -1,25 +1,50 @@
 package td3;
 
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 
 class Exchanger<T> {
-    private final static Object LOCK = new Object();
+    private final ReentrantLock lock = new ReentrantLock();
+    private final Condition notFull = lock.newCondition();
+    private final Condition notEmpty = lock.newCondition();
+
     private T value;
-    private int count = 0;
+    private boolean full = false;
+
     public T exchange(T element) throws InterruptedException {
-        synchronized(LOCK) {
-            count++;
-            if(count % 2 == 1) {
-                value = element;
-                LOCK.wait();
-                return value;
+        lock.lock();
+        try {
+            if(full) {
+                return release(element);
             } else {
-                T result = value;
-                value = element;
-                LOCK.notify();
-                return result;
+                return put(element);
             }
+        } finally {
+            lock.unlock();
         }
+    }
+
+    private T put(T element) throws InterruptedException {
+        while(full) {
+            notFull.await();
+        }
+        value = element;
+        full = true;
+        notEmpty.signal();
+        System.err.println("put " + element + " returns " + value);
+        return value;
+    }
+
+    private T release(T element) throws InterruptedException {
+        while(!full) {
+            notEmpty.await();
+        }
+        full = false;
+        T result = value;
+        notFull.signal();
+        System.err.println("release " + element + " returns " + value);
+        return result;
     }
 }
 
